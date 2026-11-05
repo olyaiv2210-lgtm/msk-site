@@ -3,6 +3,31 @@
   "use strict";
 
   const STORAGE_KEY = "msk_demo_contracts_v1";
+  
+  async function loadWordLibrary() {
+    if (window.mammoth) return window.mammoth;
+
+    const script = document.createElement("script");
+    script.src =
+      "https://cdn.jsdelivr.net/npm/mammoth@1.9.1/mammoth.browser.min.js";
+
+    return new Promise((resolve, reject) => {
+      script.onload = () => {
+        if (window.mammoth) {
+          resolve(window.mammoth);
+        } else {
+          reject(new Error("Библиотека Word не загрузилась"));
+        }
+      };
+
+      script.onerror = () => {
+        reject(new Error("Не удалось загрузить библиотеку Word"));
+      };
+
+      document.head.appendChild(script);
+    });
+  }
+
 
   function loadContracts() {
     try {
@@ -129,6 +154,40 @@
     `;
 
     document.body.appendChild(overlay);
+    
+    overlay.querySelector("#msk-card-file")
+      .addEventListener("change", async event => {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        if (!file.name.toLowerCase().endsWith(".docx")) {
+          alert("Пока автоматически читаем только Word .docx");
+          return;
+        }
+
+        try {
+          const mammoth = await loadWordLibrary();
+          const buffer = await file.arrayBuffer();
+          const result = await mammoth.extractRawText({
+            arrayBuffer: buffer
+          });
+
+          const text = result.value.trim();
+
+          if (!text) {
+            alert("Не удалось найти текст в документе.");
+            return;
+          }
+
+          alert(
+            "Текст из Word успешно прочитан!\n\n" +
+            text.slice(0, 1500)
+          );
+        } catch (error) {
+          alert("Ошибка чтения Word: " + error.message);
+        }
+      });
+
 
     overlay.querySelector("#msk-cancel").onclick = () => overlay.remove();
 
