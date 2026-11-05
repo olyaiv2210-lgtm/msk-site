@@ -66,6 +66,30 @@
         </p>
 
         <form id="msk-contract-form">
+        
+<div style="background:#f0f6fc;padding:18px;
+  border:2px dashed #a8c5e0;border-radius:12px;
+  margin-bottom:22px">
+
+  <div style="font-weight:bold;margin-bottom:8px">
+    📎 Карточка контрагента
+  </div>
+
+  <p style="font-size:13px;color:#65758a">
+    Выберите файл PDF, Word, Excel или фотографию.
+  </p>
+
+  <input type="file" id="msk-card-file"
+    accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.webp"
+    style="width:100%;max-width:100%">
+
+  <p style="font-size:12px;color:#65758a">
+    Пока файл только выбирается.
+    Автоматическое распознавание подключим позже.
+  </p>
+
+</div>
+
           <div style="display:grid;
             grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
             gap:15px">
