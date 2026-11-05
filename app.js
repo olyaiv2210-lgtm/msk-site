@@ -29,6 +29,46 @@
   }
 
 
+  
+  function extractRequisites(text) {
+    const result = {};
+
+    const patterns = {
+      inn: /\bИНН\s*[:№-]?\s*(\d{10}|\d{12})\b/i,
+      kpp: /\bКПП\s*[:№-]?\s*(\d{9})\b/i,
+      ogrn: /\bОГРН(?:ИП)?\s*[:№-]?\s*(\d{13}|\d{15})\b/i,
+      okpo: /\bОКПО\s*[:№-]?\s*(\d{8}|\d{10})\b/i,
+      bik: /\bБИК\s*[:№-]?\s*(\d{9})\b/i,
+      correspondent:
+        /(?:Корр(?:еспондентский)?\.?\s*сч[её]т|К\/С)\s*[:№-]?\s*(\d{20})\b/i,
+      account:
+        /(?:Расч[её]тный\s*сч[её]т|Р\/С)\s*[:№-]?\s*(\d{20})\b/i
+    };
+
+    for (const [field, pattern] of Object.entries(patterns)) {
+      const match = text.match(pattern);
+      if (match) result[field] = match[1];
+    }
+
+    return result;
+  }
+
+  function fillRequisites(form, requisites) {
+    let count = 0;
+
+    for (const [name, value] of Object.entries(requisites)) {
+      const input = form.elements.namedItem(name);
+
+      if (input && value) {
+        input.value = value;
+        count++;
+      }
+    }
+
+    return count;
+  }
+
+
   function loadContracts() {
     try {
       const data = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
@@ -179,10 +219,17 @@
             return;
           }
 
+             
+          const form = overlay.querySelector("#msk-contract-form");
+          const requisites = extractRequisites(text);
+          const count = fillRequisites(form, requisites);
+
           alert(
-            "Текст из Word успешно прочитан!\n\n" +
-            text.slice(0, 1500)
+            "Документ Word успешно прочитан!\n\n" +
+            "Автоматически заполнено полей: " + count +
+            "\n\nПроверьте все реквизиты перед сохранением."
           );
+
         } catch (error) {
           alert("Ошибка чтения Word: " + error.message);
         }
