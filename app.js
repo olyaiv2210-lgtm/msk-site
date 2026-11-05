@@ -17,106 +17,227 @@
     localStorage.setItem(STORAGE_KEY, JSON.stringify(contracts));
   }
 
-  function findButton(text) {
-    return [...document.querySelectorAll("button, a")]
-      .find(el => el.textContent.trim().toLowerCase()
-        .includes(text.toLowerCase()));
+  function escapeHTML(value) {
+    return String(value ?? "").replace(/[&<>"']/g, char => ({
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#39;"
+    })[char]);
   }
 
-  function showMessage(message) {
-    alert(message);
-  }
+  const fields = [
+    ["company", "Название организации", true],
+    ["inn", "ИНН", true],
+    ["kpp", "КПП"],
+    ["ogrn", "ОГРН"],
+    ["okpo", "ОКПО"],
+    ["address", "Юридический адрес"],
+    ["director", "ФИО руководителя"],
+    ["bank", "Наименование банка"],
+    ["account", "Расчётный счёт"],
+    ["correspondent", "Корреспондентский счёт"],
+    ["bik", "БИК"]
+  ];
 
-  function createContract() {
-    const company = prompt("Введите название контрагента:");
-    if (company === null) return;
-    if (!company.trim()) {
-      showMessage("Название организации не может быть пустым.");
-      return;
-    }
+  function openForm() {
+    document.getElementById("msk-modal")?.remove();
 
-    const inn = prompt("Введите ИНН контрагента:", "");
-    if (inn === null) return;
+    const overlay = document.createElement("div");
+    overlay.id = "msk-modal";
+    overlay.style.cssText = `
+      position:fixed;inset:0;z-index:9999;
+      background:rgba(10,28,50,.75);
+      display:flex;align-items:center;justify-content:center;
+      padding:15px;box-sizing:border-box;
+    `;
 
-    const contracts = loadContracts();
+    overlay.innerHTML = `
+      <div style="background:white;border-radius:18px;
+        width:100%;max-width:750px;max-height:92vh;
+        overflow-y:auto;padding:28px;box-sizing:border-box;
+        font-family:Arial,sans-serif;color:#10243e">
 
-    const contract = {
-      id: crypto.randomUUID(),
-      company: company.trim(),
-      inn: inn.trim(),
-      createdAt: new Date().toISOString(),
-      status: "Черновик"
-    };
+        <h2 style="margin-top:0">Создание договора ЭМСК</h2>
+        <p style="color:#65758a">
+          Заполните реквизиты контрагента.
+          Пока это тестовый черновик без номера договора.
+        </p>
 
-    contracts.push(contract);
+        <form id="msk-contract-form">
+          <div style="display:grid;
+            grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
+            gap:15px">
 
-    try {
-      saveContracts(contracts);
-      showMessage(
-        "Черновик сохранён в этом браузере!\n\n" +
-        "Контрагент: " + contract.company + "\n" +
-        "ИНН: " + contract.inn + "\n\n" +
-        "Это демонстрационный черновик, не официальный договор."
+            ${fields.map(([name, label, required]) => `
+              <label style="display:flex;flex-direction:column;gap:6px">
+                <span style="font-size:14px;font-weight:bold">
+                  ${label}${required ? " *" : ""}
+                </span>
+                <input name="${name}" ${required ? "required" : ""}
+                  style="padding:12px;border:1px solid #ccd5e0;
+                  border-radius:9px;font-size:15px;width:100%;
+                  box-sizing:border-box">
+              </label>
+            `).join("")}
+
+          </div>
+
+          <div style="display:flex;justify-content:flex-end;
+            gap:10px;margin-top:25px;flex-wrap:wrap">
+
+            <button type="button" id="msk-cancel"
+              style="padding:12px 20px;border:1px solid #ccd5e0;
+              border-radius:9px;background:white;cursor:pointer">
+              Отмена
+            </button>
+
+            <button type="submit"
+              style="padding:12px 20px;border:0;border-radius:9px;
+              background:#1768a6;color:white;font-weight:bold;
+              cursor:pointer">
+              Сохранить черновик
+            </button>
+          </div>
+        </form>
+      </div>
+    `;
+
+    document.body.appendChild(overlay);
+
+    overlay.querySelector("#msk-cancel").onclick = () => overlay.remove();
+
+    overlay.querySelector("#msk-contract-form").onsubmit = event => {
+      event.preventDefault();
+
+      const data = Object.fromEntries(
+        new FormData(event.currentTarget).entries()
       );
-      updateCounter();
-    } catch (error) {
-      showMessage("Не удалось сохранить черновик: " + error.message);
-    }
+
+      const contracts = loadContracts();
+
+      contracts.push({
+        id: crypto.randomUUID(),
+        ...data,
+        createdAt: new Date().toISOString(),
+        status: "Черновик"
+      });
+
+      try {
+        saveContracts(contracts);
+        overlay.remove();
+        updateCounter();
+        alert("Черновик успешно сохранён в этом браузере!");
+      } catch (error) {
+        alert("Ошибка сохранения: " + error.message);
+      }
+    };
   }
 
   function showRegistry() {
     const contracts = loadContracts();
 
-    if (!contracts.length) {
-      showMessage("Реестр черновиков пока пуст.");
-      return;
-    }
+    document.getElementById("msk-modal")?.remove();
 
-    const rows = contracts.map((c, index) =>
-      (index + 1) + ". " + c.company +
-      " | ИНН: " + (c.inn || "не указан") +
-      " | " + new Date(c.createdAt).toLocaleDateString("ru-RU")
-    );
+    const overlay = document.createElement("div");
+    overlay.id = "msk-modal";
+    overlay.style.cssText = `
+      position:fixed;inset:0;z-index:9999;
+      background:rgba(10,28,50,.75);
+      display:flex;align-items:center;justify-content:center;
+      padding:15px;box-sizing:border-box;
+    `;
 
-    showMessage(
-      "ЛОКАЛЬНЫЙ РЕЕСТР ЧЕРНОВИКОВ\n\n" +
-      rows.join("\n") +
-      "\n\nЭто не общий реестр MSK."
-    );
+    const rows = contracts.map((c, i) => `
+      <tr>
+        <td style="padding:10px;border-bottom:1px solid #ddd">${i + 1}</td>
+        <td style="padding:10px;border-bottom:1px solid #ddd">
+          ${escapeHTML(c.company)}
+        </td>
+        <td style="padding:10px;border-bottom:1px solid #ddd">
+          ${escapeHTML(c.inn)}
+        </td>
+        <td style="padding:10px;border-bottom:1px solid #ddd">
+          ${escapeHTML(c.status)}
+        </td>
+      </tr>
+    `).join("");
+
+    overlay.innerHTML = `
+      <div style="background:white;border-radius:18px;
+        width:100%;max-width:850px;max-height:90vh;
+        overflow:auto;padding:25px;box-sizing:border-box;
+        font-family:Arial,sans-serif;color:#10243e">
+
+        <h2>Реестр тестовых черновиков ЭМСК</h2>
+
+        ${contracts.length ? `
+          <div style="overflow-x:auto">
+            <table style="width:100%;border-collapse:collapse;text-align:left">
+              <thead>
+                <tr>
+                  <th>№</th>
+                  <th>Контрагент</th>
+                  <th>ИНН</th>
+                  <th>Статус</th>
+                </tr>
+              </thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>
+        ` : "<p>Черновиков пока нет.</p>"}
+
+        <p style="color:#65758a;font-size:13px">
+          Это локальные тестовые записи, а не официальный реестр договоров.
+        </p>
+
+        <button id="msk-close"
+          style="padding:12px 20px;border:0;border-radius:9px;
+          background:#1768a6;color:white;cursor:pointer">
+          Закрыть
+        </button>
+      </div>
+    `;
+
+    document.body.appendChild(overlay);
+    overlay.querySelector("#msk-close").onclick = () => overlay.remove();
   }
 
   function updateCounter() {
     const count = loadContracts().length;
-    const labels = [...document.querySelectorAll("*")]
-      .filter(el => el.children.length === 0 &&
-        el.textContent.trim() === "Черновики в браузере");
 
-    labels.forEach(label => {
-      const card = label.parentElement;
-      if (!card) return;
-      const elements = [...card.querySelectorAll("*")];
-      const value = elements.find(el =>
-        el.children.length === 0 &&
-        /^\d+$/.test(el.textContent.trim())
+    document.querySelectorAll("*").forEach(el => {
+      if (el.children.length || el.textContent.trim() !==
+          "Черновики в браузере") return;
+
+      const card = el.parentElement;
+      const value = [...card.querySelectorAll("*")].find(node =>
+        !node.children.length && /^\d+$/.test(node.textContent.trim())
       );
+
       if (value) value.textContent = String(count);
     });
   }
 
   document.addEventListener("click", event => {
-    const button = event.target.closest("button, a");
-    if (!button) return;
+    const target = event.target.closest("button, a");
+    if (!target || target.closest("#msk-modal")) return;
 
-    const label = button.textContent.trim().toLowerCase();
+    const label = target.textContent.trim().toLowerCase();
 
     if (label.includes("создать договор")) {
       event.preventDefault();
-      createContract();
+      openForm();
     } else if (label.includes("реестр договоров")) {
       event.preventDefault();
       showRegistry();
     }
   });
 
-  document.addEventListener("DOMContentLoaded", updateCounter);
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", updateCounter);
+  } else {
+    updateCounter();
+  }
 })();
