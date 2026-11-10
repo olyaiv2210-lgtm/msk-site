@@ -67,19 +67,19 @@
   function extractRequisites(text) {
     const source = String(text || "").replace(/\u00a0/g, " ");
     const lines = source.split(/\r?\n/)
-      .map(line => line.trim())
+      .map(line => line.trim().replace(/^\d{1,2}\s*[.)]\s*/, ""))
       .filter(Boolean);
-
     const result = {};
 
+    // Номера ищем по подписям, а не по расположению в документе.
     const numbers = {
       inn: /ИНН\s*[:№-]?\s*(\d{10}|\d{12})(?!\d)/i,
       kpp: /КПП\s*[:№-]?\s*(\d{9})(?!\d)/i,
       ogrn: /ОГРН(?:ИП)?\s*[:№-]?\s*(\d{13}|\d{15})(?!\d)/i,
       okpo: /ОКПО\s*[:№-]?\s*(\d{8}|\d{10})(?!\d)/i,
-      bik: /БИК\s*[:№-]?\s*(\d{9})(?!\d)/i,
-      account: /(?:Р\/С|Расч[её]тный сч[её]т)\s*[:№-]?\s*(\d{20})(?!\d)/i,
-      correspondent: /(?:К\/С|Корр(?:еспондентский)?\.?\s*сч[её]т)\s*[:№-]?\s*(\d{20})(?!\d)/i
+      bik: /(?:Банковский\s+(?:идентификационный\s+)?код\s*\(?БИК\)?|БИК)\s*[:№-]?\s*(\d{9})(?!\d)/i,
+      account: /(?:Номер\s+расч[её]тного\s+сч[её]та|Расч[её]тный\s+сч[её]т|Р\s*\/\s*С)\s*[:№-]?\s*(\d{20})(?!\d)/i,
+      correspondent: /(?:Корреспондентский\s+сч[её]т|Корр\.?\s*сч[её]т|К\s*\/\s*С)\s*[:№-]?\s*(\d{20})(?!\d)/i
     };
 
     for (const [name, pattern] of Object.entries(numbers)) {
@@ -88,10 +88,10 @@
     }
 
     const labels = {
-      company: /^(?:Полное наименование|Наименование организации|Организация)\s*[:\-]\s*(.+)$/i,
-      address: /^(?:Юридический адрес|Адрес местонахождения)\s*[:\-]\s*(.+)$/i,
-      director: /^(?:ФИО руководителя|ФИО директора|Руководитель|Генеральный директор)\s*[:\-]\s*(.+)$/i,
-      bank: /^(?:Банк|Наименование банка)\s*[:\-]\s*(.+)$/i
+      company: /^(?:Полное\s+наименование|Наименование\s+(?:предприятия|организации)|Организация)\s*[:\-]\s*(.+)$/i,
+      address: /^(?:Юридический\s+адрес|Адрес\s+местонахождения)\s*[:\-]\s*(.+)$/i,
+      director: /^(?:ФИО\s+(?:руководителя|директора)|Руководитель|Генеральный\s+директор)\s*[:\-]\s*(.+)$/i,
+      bank: /^(?:Наименование\s+банка|Банк)\s*[:\-]\s*(.+)$/i
     };
 
     for (const line of lines) {
@@ -102,11 +102,24 @@
       }
     }
 
-    if (!result.company) {
-      const line = lines.find(item =>
-        /^(ООО|АО|ПАО|ИП)\s+["«А-ЯЁ]/i.test(item)
+    // В карточках руководителя часто указывают справа от должности.
+    if (!result.director) {
+      const directorLine = lines.find(line =>
+        /^(?:Генеральный\s+)?директор(?:\s|$)/i.test(line)
       );
-      if (line) result.company = line;
+      if (directorLine) {
+        const fullName = directorLine.match(
+          /([А-ЯЁ][а-яё-]+\s+[А-ЯЁ]\.\s*[А-ЯЁ]\.|[А-ЯЁ][а-яё-]+\s+[А-ЯЁ][а-яё-]+\s+[А-ЯЁ][а-яё-]+)\s*$/i
+        );
+        if (fullName) result.director = fullName[1].replace(/\s+/g, " ").trim();
+      }
+    }
+
+    if (!result.company) {
+      const companyLine = lines.find(line =>
+        /^(?:ООО|АО|ПАО|ИП)\s+[«"А-ЯЁ]/i.test(line)
+      );
+      if (companyLine) result.company = companyLine;
     }
 
     return result;
@@ -208,7 +221,7 @@
           <strong>Карточка контрагента</strong>
           <p>Автоматическое чтение Word .docx</p>
           <input id="msk-upload" type="file"
-            accept=".docx,.pdf,.doc,.xls,.xlsx,.jpg,.jpeg,.png,.webp">
+            accept=".docx">
           <p id="msk-file-status" role="status"></p>
         </div>
 
