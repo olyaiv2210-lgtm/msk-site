@@ -15,14 +15,18 @@
     ["bank", "Банк"],
     ["account", "Расчётный счёт"],
     ["correspondent", "Корреспондентский счёт"],
-    ["bik", "БИК"]
+    ["bik", "БИК"],
+    ["actualAddress", "Фактический адрес"],
+    ["okved", "ОКВЭД"],
+    ["phone", "Телефон"],
+    ["phone2", "Дополнительный телефон"],
+    ["email", "E-mail"],
+    ["edo", "ID ЭДО"]
   ];
 
   function loadContracts() {
     try {
-      const data = JSON.parse(
-        localStorage.getItem(STORAGE_KEY) || "[]"
-      );
+      const data = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
       return Array.isArray(data) ? data : [];
     } catch {
       return [];
@@ -51,12 +55,15 @@
     const inn = String(data.inn || "").replace(/\D/g, "");
     const ogrn = String(data.ogrn || "").replace(/\D/g, "");
 
-    const ip = /^(ИП|Индивидуальный предприниматель)\b/i
-      .test(name) || inn.length === 12 || ogrn.length === 15;
+    const ip =
+      /^(ИП|Индивидуальный предприниматель)(?=\s|$)/i.test(name) ||
+      inn.length === 12 ||
+      ogrn.length === 15;
 
     const organization =
-      /^(ООО|АО|ПАО)\b/i.test(name) ||
-      inn.length === 10 || ogrn.length === 13;
+      /^(ООО|АО|ПАО)(?=\s|$)/i.test(name) ||
+      inn.length === 10 ||
+      ogrn.length === 13;
 
     if (ip && organization) return "unknown";
     if (ip) return "ip";
@@ -69,9 +76,9 @@
     const lines = source.split(/\r?\n/)
       .map(line => line.trim().replace(/^\d{1,2}\s*[.)]\s*/, ""))
       .filter(Boolean);
+
     const result = {};
 
-    // Номера ищем по подписям, а не по расположению в документе.
     const numbers = {
       inn: /ИНН\s*[:№-]?\s*(\d{10}|\d{12})(?!\d)/i,
       kpp: /КПП\s*[:№-]?\s*(\d{9})(?!\d)/i,
@@ -102,16 +109,18 @@
       }
     }
 
-    // В карточках руководителя часто указывают справа от должности.
     if (!result.director) {
       const directorLine = lines.find(line =>
         /^(?:Генеральный\s+)?директор(?:\s|$)/i.test(line)
       );
+
       if (directorLine) {
         const fullName = directorLine.match(
           /([А-ЯЁ][а-яё-]+\s+[А-ЯЁ]\.\s*[А-ЯЁ]\.|[А-ЯЁ][а-яё-]+\s+[А-ЯЁ][а-яё-]+\s+[А-ЯЁ][а-яё-]+)\s*$/i
         );
-        if (fullName) result.director = fullName[1].replace(/\s+/g, " ").trim();
+        if (fullName) {
+          result.director = fullName[1].replace(/\s+/g, " ").trim();
+        }
       }
     }
 
@@ -125,20 +134,21 @@
     return result;
   }
 
-  function loadWordLibrary() {
-    if (window.mammoth) return Promise.resolve(window.mammoth);
+  function loadScript(url, globalName) {
+    if (window[globalName]) {
+      return Promise.resolve(window[globalName]);
+    }
 
     return new Promise((resolve, reject) => {
       const script = document.createElement("script");
-      script.src =
-        "https://cdn.jsdelivr.net/npm/mammoth@1.9.1/mammoth.browser.min.js";
+      script.src = url;
 
-      script.onload = () => window.mammoth
-        ? resolve(window.mammoth)
-        : reject(new Error("Библиотека Word недоступна"));
+      script.onload = () => window[globalName]
+        ? resolve(window[globalName])
+        : reject(new Error("Библиотека " + globalName + " не загрузилась"));
 
       script.onerror = () =>
-        reject(new Error("Нет доступа к библиотеке Word"));
+        reject(new Error("Не удалось загрузить " + globalName));
 
       document.head.appendChild(script);
     });
@@ -147,12 +157,15 @@
   async function readCard(file) {
     if (!file.name.toLowerCase().endsWith(".docx")) {
       throw new Error(
-        "Пока автоматически распознаются только файлы Word .docx. " +
-        "PDF, Excel и фотографии нужно будет подключить отдельно."
+        "Пока автоматически распознаются только файлы Word .docx."
       );
     }
 
-    const mammoth = await loadWordLibrary();
+    const mammoth = await loadScript(
+      "https://cdn.jsdelivr.net/npm/mammoth@1.9.1/mammoth.browser.min.js",
+      "mammoth"
+    );
+
     const result = await mammoth.extractRawText({
       arrayBuffer: await file.arrayBuffer()
     });
@@ -164,6 +177,137 @@
     return extractRequisites(result.value);
   }
 
+  function shortName(name) {
+    return String(name || "")
+      .replace(/^(?:ИП|Индивидуальный предприниматель)\s+/i, "")
+      .trim();
+  }
+
+  function initials(name) {
+    const parts = shortName(name).split(/\s+/);
+    if (parts.length < 3) return shortName(name);
+    return parts[0] + " " + parts[1][0] + "." + parts[2][0] + ".";
+  }
+
+  async function downloadWord(record, statusElement) {
+    const type = detectType(record);
+
+    if (type === "unknown") {
+      throw new Error("Не удалось определить тип контрагента.");
+    }
+
+    const template = type === "ip"
+      ? "template-ip.docx"
+      : "template-ooo.docx";
+
+    statusElement.textContent = "Загружаем шаблон " + template + "...";
+
+    const response = await fetch(template, { cache: "no-store" });
+
+    if (!response.ok) {
+      throw new Error(
+        "Не найден " + template +
+        ". Проверьте наличие файла рядом с приложением."
+      );
+    }
+
+    const buffer = await response.arrayBuffer();
+
+    const PizZip = await loadScript(
+      "https://cdn.jsdelivr.net/npm/pizzip@3.2.0/dist/pizzip.min.js",
+      "PizZip"
+    );
+
+    const Docxtemplater = await loadScript(
+      "https://cdn.jsdelivr.net/npm/docxtemplater@3.54.0/build/docxtemplater.js",
+      "docxtemplater"
+    );
+
+    const zip = new PizZip(buffer);
+
+    const documentXml =
+      zip.file("word/document.xml")?.asText() || "";
+
+    if (
+      !documentXml.includes("{{") &&
+      !documentXml.includes("<w:t>{")
+    ) {
+      throw new Error(
+        "В шаблоне нет полей {{...}}. " +
+        "Сначала нужно подготовить шаблон, " +
+        "не меняя утверждённый текст договора."
+      );
+    }
+
+    const doc = new Docxtemplater(zip, {
+      paragraphLoop: true,
+      linebreaks: true,
+      delimiters: { start: "{{", end: "}}" },
+      nullGetter: () => ""
+    });
+
+    const date = new Date().toLocaleDateString("ru-RU", {
+      day: "2-digit",
+      month: "long",
+      year: "numeric"
+    });
+
+    const data = {
+      НОМЕР_ДОГОВОРА: "ПРОЕКТ (без номера)",
+      ДАТА_ДОГОВОРА: date,
+      ИП_ФИО: shortName(record.company),
+      ИП_ИНИЦИАЛЫ: initials(record.company),
+      ОГРНИП: record.ogrn || "",
+      ИНН: record.inn || "",
+      КПП: record.kpp || "",
+      ОГРН: record.ogrn || "",
+      ОКПО: record.okpo || "",
+      АДРЕС_РЕГИСТРАЦИИ: record.address || "",
+      АДРЕС_ФАКТИЧЕСКИЙ: record.actualAddress || "",
+      БАНК: record.bank || "",
+      РАСЧЕТНЫЙ_СЧЕТ: record.account || "",
+      КОРР_СЧЕТ: record.correspondent || "",
+      БИК: record.bik || "",
+      ОКВЭД: record.okved || "",
+      ТЕЛЕФОН_1: record.phone || "",
+      ТЕЛЕФОН_2: record.phone2 || "",
+      EMAIL: record.email || "",
+      ID_ЭДО: record.edo || "",
+      НАЗВАНИЕ_ОРГАНИЗАЦИИ: record.company || "",
+      ФИО_РУКОВОДИТЕЛЯ: record.director || ""
+    };
+
+    try {
+      doc.render(data);
+    } catch (error) {
+      throw new Error(
+        "Ошибка полей шаблона Word: " + (error.message || error)
+      );
+    }
+
+    const blob = doc.getZip().generate({
+      type: "blob",
+      mimeType:
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    });
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+
+    a.href = url;
+    a.download =
+      "ПРОЕКТ_" + (record.inn || "контрагент") + ".docx";
+
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+
+    setTimeout(() => URL.revokeObjectURL(url), 30000);
+
+    statusElement.textContent =
+      "Word-проект скачан. Официальный номер не присвоен.";
+  }
+
   function closeModal() {
     document.getElementById("msk-modal")?.remove();
   }
@@ -173,6 +317,7 @@
 
     const overlay = document.createElement("div");
     overlay.id = "msk-modal";
+
     overlay.style.cssText = `
       position:fixed;inset:0;z-index:9999;
       background:rgba(8,26,47,.75);
@@ -220,8 +365,7 @@
           border-radius:12px;margin-bottom:18px">
           <strong>Карточка контрагента</strong>
           <p>Автоматическое чтение Word .docx</p>
-          <input id="msk-upload" type="file"
-            accept=".docx">
+          <input id="msk-upload" type="file" accept=".docx">
           <p id="msk-file-status" role="status"></p>
         </div>
 
@@ -278,6 +422,7 @@
 
           for (const [name, value] of Object.entries(data)) {
             const input = form.elements.namedItem(name);
+
             if (input && value) {
               input.value = value;
               count++;
@@ -285,6 +430,7 @@
           }
 
           refreshType();
+
           status.textContent =
             `Заполнено полей: ${count}. Проверьте данные вручную.`;
         } catch (error) {
@@ -357,20 +503,31 @@
           <button type="button" data-edit="${escapeHTML(c.id)}">
             Изменить
           </button>
+          <button type="button" data-word="${escapeHTML(c.id)}">
+            Скачать Word
+          </button>
         </td>
       </tr>
     `).join("");
 
     const overlay = makeModal(`
       <h2>Реестр тестовых черновиков</h2>
-      <p>Записи хранятся только в этом браузере.</p>
+      <p>
+        Записи хранятся только в этом браузере.
+        Word — тестовый проект без официального номера.
+      </p>
+
+      <p id="msk-word-status" role="status"></p>
 
       <div style="overflow-x:auto">
         <table style="width:100%;border-collapse:collapse">
           <thead>
             <tr>
-              <th>№</th><th>Контрагент</th>
-              <th>ИНН</th><th>Статус</th><th>Действия</th>
+              <th>№</th>
+              <th>Контрагент</th>
+              <th>ИНН</th>
+              <th>Статус</th>
+              <th>Действия</th>
             </tr>
           </thead>
           <tbody>
@@ -386,12 +543,37 @@
 
     overlay.querySelector("#msk-close").onclick = closeModal;
 
-    overlay.addEventListener("click", event => {
-      const button = event.target.closest("[data-edit]");
-      if (!button) return;
+    overlay.addEventListener("click", async event => {
+      const editButton = event.target.closest("[data-edit]");
 
-      const record = contracts.find(c => c.id === button.dataset.edit);
-      if (record) openForm(record);
+      if (editButton) {
+        const record = contracts.find(
+          c => c.id === editButton.dataset.edit
+        );
+
+        if (record) openForm(record);
+        return;
+      }
+
+      const wordButton = event.target.closest("[data-word]");
+      if (!wordButton) return;
+
+      const record = contracts.find(
+        c => c.id === wordButton.dataset.word
+      );
+
+      if (!record) return;
+
+      const status = overlay.querySelector("#msk-word-status");
+      wordButton.disabled = true;
+
+      try {
+        await downloadWord(record, status);
+      } catch (error) {
+        status.textContent = "Ошибка: " + error.message;
+      } finally {
+        wordButton.disabled = false;
+      }
     });
   }
 
